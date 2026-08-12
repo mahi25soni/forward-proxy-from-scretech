@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HTTP Server in C</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <p class="eyebrow">Learning project · port 8080</p>
+        <h1>HTTP Server in C</h1>
+        <p class="lead">
+          Same HTTP server, three ways to wait on connections:
+          <strong>threads</strong>, <strong>select</strong>, and
+          <strong>epoll</strong>. This page is served from
+          <code>public/</code> — if you see styling and the status below,
+          static file routing works.
+        </p>
+      </header>
+
+      <section class="status" aria-label="Load status">
+        <span id="status-html" class="pill">HTML</span>
+        <span id="status-css" class="pill">CSS</span>
+        <span id="status-js" class="pill">JS</span>
+      </section>
+
+      <section class="cards">
+        <article class="card">
+          <span class="card-tag">v1 · macOS & Linux</span>
+          <h2>Threads</h2>
+          <p class="card-why">One pthread per connection. First step after sockets.</p>
+          <ul>
+            <li>Syscalls and error handling — not <code>fetch()</code></li>
+            <li><code>malloc</code>, pointers, memory you own</li>
+            <li>Threads block on <code>read()</code> — costly at scale</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <span class="card-tag">v2 · macOS & Linux</span>
+          <h2>select</h2>
+          <p class="card-why">Single-threaded I/O multiplexing.</p>
+          <ul>
+            <li>One thread, many connections</li>
+            <li>Wait until the kernel says a fd is readable</li>
+            <li>Multiplexing fixes <em>waiting</em>, not heavy CPU work</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <span class="card-tag">v3 · Linux only</span>
+          <h2>epoll</h2>
+          <p class="card-why">Kernel keeps interest; <code>epoll_wait</code> returns ready fds.</p>
+          <ul>
+            <li>No rebuilding the full fd set every loop</li>
+            <li><code>epoll_event.data</code> — opaque payload you define</li>
+            <li>Not on macOS — use Docker or v1/v2 locally</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="note">
+        <h2>How this request works</h2>
+        <p>
+          <strong>Connection</strong> = one TCP socket.
+          <strong>Request</strong> = one <code>GET /path</code>.
+          Your browser may open one connection and send several requests
+          (HTML, CSS, JS) — or open new ones. That behavior depends on
+          which server binary you started and keep-alive headers.
+        </p>
+      </section>
+
+      <footer class="footer">
+        <p>Built while learning C from a JavaScript background.</p>
+        <p class="muted">Run another version: <code>make run-v1</code> · <code>make run-v2</code> · <code>make run</code></p>
+      </footer>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
