@@ -12,6 +12,7 @@ const struct statusCodeToReasonStruct status_code_list[] = {
     {405, "Method Not Allowed"},
     {413, "Payload Too Large"},
     {500, "Internal Server Error"},
+    {502, "Bad Gateway"},
     {501, "Not Implemented"},
     {505, "HTTP Version Not Supported"}
 };
@@ -92,4 +93,35 @@ void http_response(int fd, FILE *fp, char *content_type){
     );
 
     write(fd, buf, response_size);
+}
+
+int create_http_request(int fd, char *method, char *path, char *host) {
+    int request_size = snprintf(
+        NULL, 0,
+        "%s %s HTTP/1.1\r\n"
+        "Host: %s\r\n"
+        "Connection: close\r\n"
+        "\r\n",
+        method, path, host
+    );
+    if (request_size < 0)
+        return -1;
+
+    char request[request_size + 1];
+    if (snprintf(request, sizeof(request),
+        "%s %s HTTP/1.1\r\n"
+        "Host: %s\r\n"
+        "Connection: close\r\n"
+        "\r\n",
+        method, path, host) != request_size)
+        return -1;
+
+    ssize_t written = write(fd, request, (size_t)request_size);
+    if (written != request_size) {
+        perror("upstream write");
+        return -1;
+    }
+
+    printf("[UPSTREAM] wrote %d bytes\n", request_size);
+    return 0;
 }

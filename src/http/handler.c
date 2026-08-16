@@ -3,10 +3,11 @@
 #include <error.h>
 
 #include <stdio.h>
+#include <string.h>
 #include <strings.h>
 #include <unistd.h>
 
-void handle_http_request(int fd, const char *raw_request) {
+void handle_http_request(int fd, const char *raw_request, ProxyPathData *proxy) {
     HttpRequest req;
 
     if (parse_http_request((char *)raw_request, &req) < 0) {
@@ -16,6 +17,14 @@ void handle_http_request(int fd, const char *raw_request) {
     printf("the fd is %d \n", fd);
     printf("method is %s\n", req.method);
     printf("path is %s\n", req.path);
+
+    if (strncmp(req.path, "http", 4) == 0) {
+        if (get_proxy_path_data(req.path, req.method, proxy) < 0) {
+            http_error(fd, 400, "Error in request");
+            return;
+        }
+        return;
+    }
 
     if (strcasecmp(req.method, "GET") != 0) {
         return;

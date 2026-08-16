@@ -1,6 +1,8 @@
 
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <parser.h>
 
 
@@ -41,6 +43,55 @@ int parse_http_request(char *buf, HttpRequest *req)
 
         req->header_count++;
     }
+
+    return 0;
+}
+
+int get_proxy_path_data(const char *raw_path, const char *method, ProxyPathData *out)
+{
+    memset(out, 0, sizeof(*out));
+    if (!raw_path || !method)
+        return -1;
+
+    strncpy(out->method, method, sizeof(out->method) - 1);
+
+    const char *scheme_end = strstr(raw_path, "://");
+    if (!scheme_end)
+        return -1;
+
+    size_t scheme_len = (size_t)(scheme_end - raw_path);
+    if (scheme_len == 0 || scheme_len >= sizeof(out->scheme))
+        return -1;
+    memcpy(out->scheme, raw_path, scheme_len);
+    out->scheme[scheme_len] = '\0';
+
+    const char *host_start = scheme_end + 3;
+    const char *path_start = strchr(host_start, '/');
+    const char *host_end = path_start ? path_start : host_start + strlen(host_start);
+
+    const char *colon = memchr(host_start, ':', (size_t)(host_end - host_start));
+    const char *name_end = colon ? colon : host_end;
+
+    size_t host_len = (size_t)(name_end - host_start);
+    if (host_len == 0 || host_len >= sizeof(out->host))
+        return -1;
+    memcpy(out->host, host_start, host_len);
+    out->host[host_len] = '\0';
+
+    if (colon) {
+        out->port = atoi(colon + 1);
+        if (out->port <= 0)
+            return -1;
+    } else if (strcasecmp(out->scheme, "https") == 0) {
+        out->port = 443;
+    } else {
+        out->port = 80;
+    }
+
+    if (path_start)
+        strncpy(out->path, path_start, sizeof(out->path) - 1);
+    else
+        strncpy(out->path, "/", sizeof(out->path) - 1);
 
     return 0;
 }

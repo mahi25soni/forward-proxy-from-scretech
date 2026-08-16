@@ -1,0 +1,78 @@
+---
+description: Documentation workflow — loaded on doc: command only
+alwaysApply: false
+---
+
+# Documentation Workflow
+
+Loaded when user message starts with `doc:`. Human content lives under `docs/` only.
+
+## Layout
+
+```
+docs/
+├── README.md              # current milestone + links (keep ≤15 lines)
+├── ROADMAP.md             # milestone checkboxes from path.txt
+├── journal/               # session scratch
+├── milestones/            # retrospective after acceptance test passes
+└── learning/
+    ├── ARCHITECTURE.md
+    ├── DECISIONS.md
+    └── GLOSSARY.md
+```
+
+## When to update what
+
+| Target | When | Size |
+|--------|------|------|
+| `journal/` | Slice done, meaningful bug/insight, **end of session** | ~15 lines |
+| `learning/GLOSSARY.md` | New term you'd explain twice | 1–3 lines/term |
+| `learning/DECISIONS.md` | After choosing an approach | ~5 lines/ADR |
+| `learning/ARCHITECTURE.md` | When fd/connection model changes (mainly M2+) | short |
+| `milestones/` | **Only** after acceptance test in path.txt passes | full retrospective |
+| `ROADMAP.md` | Checkbox when slice/milestone done | 1 line |
+
+**Journal frequency:** 2–4 checkpoints per session + mandatory close. Not after every edit.
+
+## Journal template
+
+File: `docs/journal/YYYY-MM-DD-m<N>-s<N>.md`
+
+```markdown
+# M<N> Session <N> — YYYY-MM-DD
+
+## Done
+-
+
+## Learned
+-
+
+## Open
+-
+
+## Next
+-
+
+## Commands
+```
+
+## `doc:` command map
+
+| User says | Action |
+|-----------|--------|
+| `doc: end session` | Write/update today's journal using template |
+| `doc: start session` | Read `ROADMAP.md` + latest journal; summarize status in 5 bullets |
+| `doc: glossary <term>` | Append to `learning/GLOSSARY.md` |
+| `doc: decision <title>` | Append ADR to `learning/DECISIONS.md` |
+| `doc: milestone done` | Write `docs/milestones/m<N>-....md` only if acceptance test passed; update ROADMAP |
+| `doc: architecture` | Update `learning/ARCHITECTURE.md` |
+
+## Milestone retrospective (only after DoD passes)
+
+Sections: Status, Definition of done, What we built, What we reused, What we learned, How to verify, Known limitations.
+
+## Rules
+
+- Bullets only in journal; no pasted AI essays.
+- Never write milestone doc before acceptance test passes.
+- Update `docs/README.md` link to latest journal when creating a new journal file.

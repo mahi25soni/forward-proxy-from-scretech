@@ -1,0 +1,26 @@
+---
+description: Forward proxy project — core agent behavior
+alwaysApply: true
+---
+
+# Forward Proxy (C)
+
+- Building an HTTP forward proxy milestone-by-milestone; roadmap lives in `path.txt`.
+- Prefer reusing existing patterns in `src/` over greenfield rewrites.
+- Keep changes minimal and milestone-scoped unless the user asks otherwise.
+
+## Context loading (token discipline)
+
+- Default: read only relevant `src/` files + `docs/ROADMAP.md` if needed.
+- Do NOT read `docs/journal/`, `docs/milestones/`, or `docs/learning/` unless asked or `doc:` triggered.
+- Do NOT dump long explanations into markdown files; docs are terse human bullets.
+
+## Documentation workflow trigger
+
+When the user message **starts with `doc:`** (e.g. `doc: end session`, `doc: update glossary`):
+
+1. Read `.cursor/rules/docs-workflow.mdc` in full.
+2. Follow that workflow for the rest of the request.
+3. Apply the matching section (journal, milestone, glossary, etc.).
+
+If the message does not start with `doc:`, ignore docs-workflow unless the user explicitly asks about documentation.

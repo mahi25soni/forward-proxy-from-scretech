@@ -1,0 +1,307 @@
+Forward Proxy — Project Milestones
+Milestone 1 — Basic HTTP Forwarding
+Description
+
+Build the smallest actually usable forward proxy.
+
+curl
+  ↓
+Proxy
+  ↓
+Website
+
+The proxy accepts an HTTP proxy request, determines the destination, establishes an upstream TCP connection, forwards the request, receives the response, and sends it back to the client.
+
+Learn
+What a proxy-form HTTP request looks like
+Absolute-form request targets
+Destination host/port extraction
+getaddrinfo()
+Creating the upstream connection
+Client socket vs upstream socket
+Basic request/response forwarding
+Basic error handling
+The difference between acting as a TCP server and TCP client in the same process
+
+Don't worry about sophisticated epoll architecture yet.
+
+Final result
+
+This must genuinely work:
+
+curl --proxy localhost:8080 http://example.com
+
+The request must go:
+
+curl → your proxy → real website → your proxy → curl
+Milestone 2 — Event-Driven Proxy
+Description
+
+Convert the basic proxy into a proper multi-connection event-driven program using the knowledge you already have from your HTTP server.
+
+The important new problem is:
+
+client A ↔ upstream A
+client B ↔ upstream B
+client C ↔ upstream C
+...
+
+all progressing independently.
+
+Learn
+Non-blocking sockets
+epoll
+Non-blocking connect()
+Per-connection state
+Mapping fd → connection state
+Client/upstream socket relationships
+Connection state machines
+Why the event loop cannot block on any individual connection
+Lifecycle of a proxy connection
+Final result
+
+The proxy can handle many simultaneous HTTP clients without one slow connection blocking the others.
+
+You should be able to explain:
+
+Given an arbitrary fd returned by epoll, how does my program know what connection it belongs to and what state that connection is currently in?
+
+Milestone 3 — Correct Streaming and Backpressure
+Description
+
+Now make the proxy correct under real network behavior.
+
+This is where the project becomes significantly more interesting.
+
+Client
+  ↓
+Proxy
+  ↓
+Slow server
+
+and:
+
+Fast server
+  ↓
+Proxy
+  ↓
+Slow client
+
+must both work without your proxy consuming unlimited memory.
+
+Learn
+Partial read()
+Partial write()
+EAGAIN / EWOULDBLOCK
+Application buffers
+Read/write readiness
+Write queues
+Buffer ownership
+Backpressure
+When to stop watching EPOLLIN
+When to enable EPOLLOUT
+Why "read everything, then write everything" is fundamentally wrong
+Memory bounds
+Final result
+
+The proxy correctly streams data between client and upstream even when either side is slow.
+
+You should be able to explain:
+
+What happens to a byte when it arrives faster than the other socket can accept it?
+
+And importantly:
+
+Why doesn't the proxy's memory usage grow without limit?
+
+Milestone 4 — HTTPS via CONNECT
+Description
+
+Add HTTPS support without implementing TLS.
+
+The client does:
+
+CONNECT example.com:443
+
+The proxy establishes the upstream TCP connection and, once successful, becomes a bidirectional byte relay.
+
+Client
+  ↕
+Proxy
+  ↕
+HTTPS Server
+Learn
+CONNECT
+Establishing a TCP tunnel
+Transitioning connection state from HTTP parsing → tunneling
+Bidirectional forwarding
+Two independent data directions
+Half-close
+EOF
+Connection shutdown
+Tunnel lifecycle
+Why the proxy doesn't need to understand TLS
+Final result
+
+This works:
+
+curl --proxy localhost:8080 https://example.com
+
+And you can explain exactly what happens to encrypted TLS bytes as they pass through your proxy.
+
+Milestone 5 — Failure, Timeout, and Resource Management
+Description
+
+Make the proxy survive the ugly cases.
+
+Until now, you've mainly made the happy path work.
+
+Now deliberately make connections fail.
+
+Learn
+DNS failures
+Connection failures
+Connection refused
+Client disconnects
+Upstream disconnects
+Half-closed connections
+Connect timeouts
+Idle timeouts
+Timeout bookkeeping
+fd ownership
+Buffer ownership
+Cleanup ordering
+fd reuse / stale epoll events
+Memory leaks
+Double-close problems
+Graceful shutdown
+Final result
+
+Connections don't hang forever and resources don't leak when things go wrong.
+
+You should be able to answer:
+
+"At every point in this connection's lifecycle, who owns this fd, who owns this buffer, and who is responsible for destroying them?"
+
+That is an important production-level question.
+
+Milestone 6 — Make It Operational
+Description
+
+Turn the proxy from a working program into a small piece of software someone could actually run.
+
+Add:
+
+Configuration
+Logging
+Connection limits
+Basic access control
+Allowed destination ports
+Basic request limits
+Graceful shutdown
+Useful error reporting
+
+Keep all of this deliberately small.
+
+Learn
+Configuration design
+Operational logging
+Security implications of an open proxy
+Resource limits
+Defensive input handling
+Process lifecycle
+Operational failure visibility
+Final result
+
+Someone can run the proxy with a configuration rather than modifying source code, and can understand what the proxy is doing from its logs.
+
+For example:
+
+listen address
+listen port
+connect timeout
+idle timeout
+max connections
+allowed ports
+
+No giant configuration language.
+
+Milestone 7 — Real-World Validation and Performance
+Description
+
+Now treat your proxy like software rather than a coding project.
+
+Test it with real clients and deliberately hostile conditions.
+
+Learn
+Integration testing
+Real browser/curl behavior
+Slow clients
+Slow upstreams
+Large responses
+Many simultaneous connections
+Malformed requests
+DNS failures
+Connection failures
+tcpdump
+strace
+ss
+lsof
+Load testing
+Throughput
+Latency
+CPU usage
+Memory usage
+
+Compare:
+
+Direct connection
+       vs
+Through proxy
+Final result
+
+You have a proxy that:
+
+✓ forwards HTTP
+✓ tunnels HTTPS
+✓ handles multiple connections
+✓ handles partial I/O
+✓ applies backpressure
+✓ handles failures
+✓ has timeouts
+✓ doesn't leak resources
+✓ has basic security controls
+✓ has configuration
+✓ has useful logging
+✓ works with real clients
+✓ has been stress-tested
+✓ has measured performance
+
+And, more importantly, you can trace the lifecycle of a byte through the system.
+
+The Entire Roadmap
+
+Keep this as the master checklist:
+
+┌────────────────────────────────────────────┐
+│ 1. Basic HTTP Forwarding                   │
+│    Client → Proxy → Internet               │
+├────────────────────────────────────────────┤
+│ 2. Event-Driven Proxy                     │
+│    epoll + nonblocking + connection state  │
+├────────────────────────────────────────────┤
+│ 3. Streaming + Backpressure                │
+│    partial I/O + buffers + flow control    │
+├────────────────────────────────────────────┤
+│ 4. HTTPS / CONNECT                         │
+│    TCP tunneling + bidirectional relay     │
+├────────────────────────────────────────────┤
+│ 5. Failure + Resource Management           │
+│    timeouts + cleanup + lifecycle          │
+├────────────────────────────────────────────┤
+│ 6. Operational Software                    │
+│    config + logging + limits + security    │
+├────────────────────────────────────────────┤
+│ 7. Validation + Performance                │
+│    real clients + stress + benchmarks      │
+└────────────────────────────────────────────┘
