@@ -2,3 +2,6 @@ server
 server-v1
 server-v2
 *.dSYM/
+
+.cursor
+doc/teacher.md

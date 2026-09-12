@@ -95,3 +95,33 @@ int get_proxy_path_data(const char *raw_path, const char *method, ProxyPathData 
 
     return 0;
 }
+
+int get_connect_target(const char *authority, ProxyPathData *out)
+{
+    memset(out, 0, sizeof(*out));
+    if (!authority || authority[0] == '\0')
+        return -1;
+
+    strncpy(out->method, "CONNECT", sizeof(out->method) - 1);
+
+    const char *colon = strrchr(authority, ':');
+    if (!colon) {
+        if (strlen(authority) >= sizeof(out->host))
+            return -1;
+        strncpy(out->host, authority, sizeof(out->host) - 1);
+        out->port = 443;
+        return 0;
+    }
+
+    size_t host_len = (size_t)(colon - authority);
+    if (host_len == 0 || host_len >= sizeof(out->host))
+        return -1;
+    memcpy(out->host, authority, host_len);
+    out->host[host_len] = '\0';
+
+    out->port = atoi(colon + 1);
+    if (out->port <= 0)
+        return -1;
+
+    return 0;
+}

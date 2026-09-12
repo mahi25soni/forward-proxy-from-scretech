@@ -25,5 +25,6 @@ typedef struct {
 
 int parse_http_request(char *buf, HttpRequest *req);
 int get_proxy_path_data(const char *raw_path, const char *method, ProxyPathData *out);
+int get_connect_target(const char *authority, ProxyPathData *out);
 
 #endif

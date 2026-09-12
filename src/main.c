@@ -1,21 +1,20 @@
-#include <handler.h>
-#include <parser.h>
-#include <error.h>
+#include <connection.h>
+#include <proxy.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 #include <signal.h>
 #include <sys/select.h>
-#include <netdb.h>
-#include <arpa/inet.h>
+#include <errno.h>
 
 volatile sig_atomic_t keep_running = 1;
+int PROXY_READ_BUFFER_SIZE = 2048;
 fd_set read_fds;
+fd_set write_fds;
 
 void handle_interrupt(int signal_num) {
     (void)signal_num;
@@ -32,106 +31,9 @@ void setup_signals(void) {
     sigaction(SIGTERM, &sa, NULL);
 }
 
-void close_fd(int fd, int fd_index, int client_array[], int *client_count){
-    client_array[fd_index] = client_array[*client_count - 1];
-    (*client_count) -= 1;
-    close(fd);
-
-}
-int handle_client(int fd, int fd_index, int client_array[], int *client_count){
-        char buf[2000];
-        ssize_t read_bytes = read(fd, buf, sizeof(buf) - 1);
-        if (read_bytes < 0) {
-            perror("read");
-            close_fd(fd, fd_index, client_array, client_count);
-            return 0;
-        }
-        if (read_bytes == 0) {
-            printf("[DISCONNECT] fd=%d\n", fd);
-            close_fd(fd, fd_index, client_array, client_count);
-            return 0;
-        }
-        buf[read_bytes] = '\0';
-
-        ProxyPathData proxy = {0};
-        handle_http_request(fd, buf, &proxy);
-
-        if (proxy.host[0] != '\0') {
-            char port_str[8];
-            snprintf(port_str, sizeof(port_str), "%d", proxy.port);
-            
-            struct addrinfo hints, *res, *p;
-            memset(&hints, 0, sizeof(hints));
-            hints.ai_family = AF_INET;
-            hints.ai_socktype = SOCK_STREAM;
-            
-            int status = getaddrinfo(proxy.host, port_str, &hints, &res);
-            if (status != 0) {
-                fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
-                http_error(fd, 502, "Could not resolve upstream host");
-                return 1;
-            }
-
-            int upstream_fd = -1;
-            for (p = res; p != NULL; p = p->ai_next) {
-                int try_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
-                if (try_fd == -1) {
-                    perror("upstream socket");
-                    continue;
-                }
-
-                if (connect(try_fd, p->ai_addr, p->ai_addrlen) == 0) {
-                    upstream_fd = try_fd;
-                    break;
-                }
-                perror("connect");
-                close(try_fd);
-            }
-            freeaddrinfo(res);
-
-            if (upstream_fd == -1) {
-                fprintf(stderr, "Could not connect to %s:%s\n", proxy.host, port_str);
-                http_error(fd, 502, "Could not connect to upstream");
-                return 1;
-            }
-
-            printf("[UPSTREAM] connected fd=%d to %s:%d\n",
-                   upstream_fd, proxy.host, proxy.port);
-
-            if (create_http_request(upstream_fd, proxy.method, proxy.path, proxy.host) < 0) {
-                close(upstream_fd);
-                http_error(fd, 502, "Could not send request to upstream");
-                return 1;
-            }
-
-            // Let's read the data
-            char proxy_read_buf[4048];
-            ssize_t read_size;
-            while ((read_size = read(upstream_fd, proxy_read_buf, sizeof(proxy_read_buf))) > 0) {
-                if ( write(fd, proxy_read_buf, read_size) == -1){
-                    close(upstream_fd);
-                    perror("read proxy error");
-                    http_error(fd, 502, "Error in reading proxy data");
-                    return 1;
-                };
-            }
-            if (read_size < 0){
-                close(upstream_fd);
-                perror("read proxy error");
-                http_error(fd, 502, "Error in reading proxy data");
-                return 1;
-            }
-            close(upstream_fd);
-            close_fd(fd, fd_index, client_array, client_count);
-            return 0;
-        }
-
-        return 1;
-}
-
 int main(void) {
     setup_signals();
-    
+
     int listening_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (listening_socket == -1) {
         perror("Listing socket");
@@ -154,44 +56,128 @@ int main(void) {
         exit(1);
     }
 
-
-    // put listening socket into read_fds
-    int client_array[1024];
+    Connection client_array[1024];
     int client_count = 0;
-    client_array[client_count++] = listening_socket;
+    memset(&client_array[0], 0, sizeof(Connection));
+    client_array[0].connection_fd = listening_socket;
+    client_array[0].upstream_fd = -1;
+    client_count = 1;
+
     while (keep_running) {
         FD_ZERO(&read_fds);
+        FD_ZERO(&write_fds);
 
         int max_fd = -1;
-        for(int i = 0; i < client_count; i++){
-            FD_SET(client_array[i], &read_fds);
-            if(client_array[i] > max_fd){
-                max_fd = client_array[i];
+        for (int i = 0; i < client_count; i++) {
+            int upstream_pending = client_array[i].pending_upstream_write.read_bytes_size
+                > client_array[i].pending_upstream_write.offset_bytes;
+
+            if (client_array[i].current_state != CONN_DRAIN_CLIENT && !upstream_pending) {
+                FD_SET(client_array[i].connection_fd, &read_fds);
+            }
+
+            if (client_array[i].connection_fd > max_fd) {
+                max_fd = client_array[i].connection_fd;
+            }
+            if (client_array[i].upstream_fd != -1) {
+                if (client_array[i].current_state == CONN_RELAY) {
+                    FD_SET(client_array[i].upstream_fd, &read_fds);
+                }
+                if (client_array[i].current_state == CONN_CONNECTING || upstream_pending) {
+                    FD_SET(client_array[i].upstream_fd, &write_fds);
+                }
+                if (client_array[i].upstream_fd > max_fd) {
+                    max_fd = client_array[i].upstream_fd;
+                }
+            }
+
+            if (client_array[i].current_state == CONN_DRAIN_CLIENT) {
+                FD_SET(client_array[i].connection_fd, &write_fds);
             }
         }
 
-        int select_response = select(max_fd+1, &read_fds, NULL, NULL, NULL);
+        int select_response = select(max_fd + 1, &read_fds, &write_fds, NULL, NULL);
 
         if (select_response < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
             perror("Select error");
+            continue;
         } else if (select_response == 0) {
             printf("Timeout! You took too long.\n");
         }
 
-        for (int i = 0; i<client_count; i++) {
-            if(client_array[i] == listening_socket && FD_ISSET(client_array[i], &read_fds)){
+        for (int i = 0; i < client_count; i++) {
+            if (client_array[i].connection_fd == listening_socket &&
+                FD_ISSET(client_array[i].connection_fd, &read_fds)) {
                 int connection_fd = accept(listening_socket, NULL, NULL);
                 if (connection_fd == -1) {
                     perror("Accept Connection");
                     continue;
                 }
 
-                client_array[client_count++] = connection_fd;
-            }
-            else if (FD_ISSET(client_array[i], &read_fds)){
-                if ( handle_client(client_array[i], i, client_array, &client_count) == 0){
+                if (set_nonblock(connection_fd) == -1) {
+                    close(connection_fd);
+                    perror("FD Flag changing issue");
                     continue;
-                };
+                }
+
+                memset(&client_array[client_count], 0, sizeof(Connection));
+                client_array[client_count].connection_fd = connection_fd;
+                client_array[client_count].upstream_fd = -1;
+                client_array[client_count].current_state = CONN_CLIENT_REQUEST;
+                client_count++;
+            }
+            else if (client_array[i].current_state == CONN_DRAIN_CLIENT &&
+                     FD_ISSET(client_array[i].connection_fd, &write_fds)) {
+                if (drain_write_buffer(i, client_array, &client_count) == 0) {
+                    i--;
+                    continue;
+                }
+            }
+            else if (client_array[i].current_state == CONN_CONNECTING &&
+                     client_array[i].upstream_fd != -1 &&
+                     FD_ISSET(client_array[i].upstream_fd, &write_fds)) {
+                if (finish_connect(i, client_array, &client_count) == 0) {
+                    i--;
+                    continue;
+                }
+            }
+            else if (client_array[i].current_state == CONN_RELAY &&
+                     client_array[i].upstream_fd != -1 &&
+                     client_array[i].pending_upstream_write.read_bytes_size
+                         > client_array[i].pending_upstream_write.offset_bytes &&
+                     FD_ISSET(client_array[i].upstream_fd, &write_fds)) {
+                if (drain_upstream_write(i, client_array, &client_count) == 0) {
+                    i--;
+                    continue;
+                }
+            }
+            else if (FD_ISSET(client_array[i].connection_fd, &read_fds)) {
+                if (client_array[i].current_state == CONN_CLIENT_REQUEST) {
+                    if (handle_client(i, client_array, &client_count) == 0) {
+                        i--;
+                        continue;
+                    }
+                } else if (client_array[i].current_state == CONN_RELAY) {
+                    if (handle_client_relay(i, client_array, &client_count) == 0) {
+                        i--;
+                        continue;
+                    }
+                } else {
+                    close_fd(i, client_array, &client_count);
+                    i--;
+                    continue;
+                }
+            }
+            else if (client_array[i].upstream_fd != -1 &&
+                     client_array[i].current_state == CONN_RELAY &&
+                     FD_ISSET(client_array[i].upstream_fd, &read_fds)) {
+                if (handle_upstream(i, client_array, &client_count) == 0) {
+                    i--;
+                    continue;
+                }
             }
         }
     }
@@ -200,4 +186,3 @@ int main(void) {
     printf("Server shut down cleanly.\n");
     return 0;
 }
-

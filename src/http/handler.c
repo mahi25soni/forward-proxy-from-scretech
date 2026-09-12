@@ -18,6 +18,15 @@ void handle_http_request(int fd, const char *raw_request, ProxyPathData *proxy) 
     printf("method is %s\n", req.method);
     printf("path is %s\n", req.path);
 
+    if (strcasecmp(req.method, "CONNECT") == 0) {
+        if (get_connect_target(req.path, proxy) < 0) {
+            http_error(fd, 400, "Error in request");
+            return;
+        }
+        printf("host=%s port=%d method=%s\n", proxy->host, proxy->port, proxy->method);
+        return;
+    }
+
     if (strncmp(req.path, "http", 4) == 0) {
         if (get_proxy_path_data(req.path, req.method, proxy) < 0) {
             http_error(fd, 400, "Error in request");

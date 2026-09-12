@@ -17,9 +17,10 @@ Reference this when learning/building milestones. User can say: **"follow teache
 
 1. **Where we are** — what already works from the last byte.
 2. **What we need** — one concrete goal for this byte.
-3. **How to think about it** — structure/approach, not full code.
-4. **Your task** — what to implement and how to verify.
-5. **Hints only** — nudge on edge cases; do not paste complete implementations across files.
+3. **Why we need** - provide reason in detail and how its helps us
+4. **How to think about it** — structure/approach, not full code.
+5. **Your task** — what to implement and how to verify.
+6. **Hints only** — nudge on edge cases; do not paste complete implementations across files.
 
 ## Code
 
